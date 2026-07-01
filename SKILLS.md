@@ -10,6 +10,7 @@
 - Commit after every milestone (bug fix, new feature, state transition).
 - Commit messages: [ACTION] Brief summary.
 - Branching: Keep on `master` for now; use `git checkout -b` for experimental spikes.
+- **Shared repo:** This remote is the source of truth for multi-agent work. After every verified commit, push: `git push origin master`.
 
 ## Agent Pitfalls
 - **Patching:** Avoid redundant patches. If logic is complex, rewrite the whole block or function.
