@@ -34,7 +34,8 @@ class Ball:
     def serve(self, direction: int = 1):
         """
         Launch ball.
-        direction: -1 = down toward P2 (bottom paddle), +1 = up toward P1 (top paddle)
+        direction:  1 = up toward P1 (top paddle)
+                   -1 = down toward P2 (bottom paddle)
         """
         import random, math
         self.serve_delay = 0
@@ -42,9 +43,9 @@ class Ball:
         angle_deg = random.uniform(-30, 30)  # -30 to +30 degrees from vertical
         angle = math.radians(angle_deg)
         if direction > 0:
-            self.angle = -angle   # going up
+            self.angle = -math.pi / 2 + angle   # going up
         else:
-            self.angle = math.pi + angle  # going down
+            self.angle = math.pi / 2 + angle  # going down
 
         base_speed = self.start_speed - (self.start_radius - self.radius) * 0.05
         base_speed = max(base_speed, 4)
@@ -84,22 +85,20 @@ class Ball:
         self.trail = [(x, y, r, max(0, a - 8)) for x, y, r, a in self.trail if a > 0]
 
     def on_paddle_hit(self, paddle):
-        """Ball hit top or bottom paddle — reverse angle, shrink, speed up."""
+        """Ball hit top or bottom paddle — reflect toward opposite side."""
         import math
         self.rally_count += 1
 
-        # Hit offset: where on the paddle did ball hit (-1=left edge, 0=center, 1=right)
+        # Hit offset: where on the paddle did ball hit (-1=left, 0=center, 1=right)
         hit_offset = (self.x - paddle.rect.centerx) / max(1, paddle.rect.width / 2)
         hit_offset = max(-1, min(1, hit_offset))
         max_angle = 1.5  # ~85 degrees max deflection
         deflect = hit_offset * max_angle
 
-        if paddle.side == "top":
-            # Launch downward: PI/2 is straight down
-            self.angle = math.pi / 2 - deflect
-        else:
-            # Launch upward: 3*PI/2 is straight up
-            self.angle = 3 * math.pi / 2 - deflect
+        if paddle.side == "top":  # P1 hit -> ball should go DOWN
+            self.angle = math.pi / 2 - deflect  # mostly down
+        else:  # P2 hit -> ball should go UP
+            self.angle = -math.pi / 2 - deflect  # mostly up
 
         # Spin effect from boost timers
         if paddle.boost_timer > 0:
