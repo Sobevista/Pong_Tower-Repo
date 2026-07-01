@@ -92,3 +92,9 @@ say so plainly in HANDOFF_TO_CLAUDE.md — not "should be fine now."
 - **Last commit of a session should be the handoff file update.** So the
   other agent's very next `git pull` + read gets the whole picture without
   digging through commit history.
+- **Any command meant for Daniel to run himself must be a full copy-paste
+  block, always starting with `cd C:\Users\dansl\PONG_GAME`.** He's not
+  yet comfortable with manual directory navigation — don't assume the
+  shell is already in the right place, and don't split navigation and
+  action across separate instructions he has to stitch together. See
+  SKILLS.md "CLI Instruction Format" for the exact convention.
