@@ -11,6 +11,7 @@
 - Commit messages: [ACTION] Brief summary.
 - Branching: Keep on `master` for now; use `git checkout -b` for experimental spikes.
 - **Shared repo:** This remote is the source of truth for multi-agent work. After every verified commit, push: `git push origin master`.
+- **Handoff files:** last commit of every session should update `HANDOFF_TO_HERMES.md` or `HANDOFF_TO_CLAUDE.md` (whichever direction applies). See `HANDOFF.md` for the full protocol. This is how the other agent knows what to do next without Daniel manually relaying it.
 
 ## Agent Pitfalls
 - **Patching:** Avoid redundant patches. If logic is complex, rewrite the whole block or function.
