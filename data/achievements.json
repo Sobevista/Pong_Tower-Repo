@@ -1,0 +1,74 @@
+{
+  "first_blood": {
+    "name": "First Blood",
+    "description": "Score your first point",
+    "icon": "\ud83c\udf52",
+    "unlocked": true
+  },
+  "perfect_match": {
+    "name": "Perfect Match",
+    "description": "Win a game 11-0",
+    "icon": "\ud83c\udf1f",
+    "unlocked": false
+  },
+  "speed_demon": {
+    "name": "Speed Demon",
+    "description": "Win a rally where ball was at minimum size",
+    "icon": "\u26a1",
+    "unlocked": false
+  },
+  "marathon": {
+    "name": "Marathon",
+    "description": "Win a game with 30+ total points scored",
+    "icon": "\ud83c\udfc3",
+    "unlocked": false
+  },
+  "comeback_king": {
+    "name": "Comeback King",
+    "description": "Win after being down 8-10",
+    "icon": "\ud83d\udc51",
+    "unlocked": false
+  },
+  "shrink_master": {
+    "name": "Shrink Master",
+    "description": "Win a game where ball shrank below 8 radius",
+    "icon": "\ud83d\udd3b",
+    "unlocked": false
+  },
+  "rally_100": {
+    "name": "Rally Century",
+    "description": "Hit 100 total rally shots",
+    "icon": "\ud83d\udcaf",
+    "unlocked": false
+  },
+  "first_win": {
+    "name": "First Victory",
+    "description": "Win your first full game",
+    "icon": "\ud83c\udfc6",
+    "unlocked": true
+  },
+  "no_miss": {
+    "name": "Clean Sweep",
+    "description": "Win without conceding a single point",
+    "icon": "\ud83e\uddf9",
+    "unlocked": false
+  },
+  "affix_survivor": {
+    "name": "Affix Survivor",
+    "description": "Win a match with 2 active affixes",
+    "icon": "\ud83d\udc80",
+    "unlocked": false
+  },
+  "tower_floor_5": {
+    "name": "Floor 5 Conqueror",
+    "description": "Reach floor 5 of Pong Tower",
+    "icon": "\ud83d\uddfc",
+    "unlocked": false
+  },
+  "tower_conqueror": {
+    "name": "Tower Conqueror",
+    "description": "Clear the full Pong Tower",
+    "icon": "\ud83c\udff0",
+    "unlocked": false
+  }
+}
