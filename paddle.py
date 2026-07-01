@@ -48,6 +48,11 @@ class Paddle:
         return self.base_speed * boost
 
     def get_current_width(self):
+        # NOTE: scaffolding for a future "wide paddle" power-up.
+        # Not yet wired to self.rect or collision — calling apply_wide()
+        # currently has zero visual/gameplay effect. Wire this into
+        # _position_on_side()/move_left()/move_right() when that
+        # power-up is actually built (see PROJECT_LOG Phase 3).
         if self.wide_timer > 0:
             return int(self.width * 1.6)
         return self.width

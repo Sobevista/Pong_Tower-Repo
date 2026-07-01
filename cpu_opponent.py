@@ -12,7 +12,10 @@ class CPU:
           0.0 = barely moves, 1.0 = perfect tracking
         """
         self.base_difficulty = max(0.0, min(1.0, difficulty))
-        self.reaction_speed = self.base_difficulty * 0.85 + 0.05  # 5%–90% sneak rate per frame
+        # NOTE: difficulty currently only narrows error_margin (jitter).
+        # A reaction-lag mechanic (delay before CPU starts tracking a new
+        # incoming ball) would be a good next enhancement for making
+        # higher floors feel meaningfully harder, not just more accurate.
         self.error_margin = (1.0 - self.base_difficulty) * 60      # px of "noise" added to target
         self.current_error_x = 0
         self.current_error_timer = 0
@@ -49,5 +52,4 @@ class CPU:
 
     def update_difficulty(self, difficulty: float):
         self.base_difficulty = max(0.0, min(1.0, difficulty))
-        self.reaction_speed = self.base_difficulty * 0.85 + 0.05
         self.error_margin = (1.0 - self.base_difficulty) * 60

@@ -102,10 +102,7 @@ class PongGame:
 
     def reset_match(self):
         self.p1 = Paddle(1, "top")   # always human
-        if self.mode == "tower" and self.cpu:
-            self.p2 = Paddle(2, "bottom")
-        else:
-            self.p2 = Paddle(2, "bottom")
+        self.p2 = Paddle(2, "bottom")  # human or CPU-driven, same paddle object either way
         self.ball = Ball()
         self.serve_direction = random.choice([-1, 1])
         self.ball.serve_delay = SERVE_DELAY_FRAMES

@@ -16,3 +16,5 @@
 - **Patching:** Avoid redundant patches. If logic is complex, rewrite the whole block or function.
 - **State Logic:** Ensure input handlers check `game.state` before updating paddle positions.
 - **Dependency:** Verify libraries are in the local venv before assuming existence.
+- **Test what you claim, not what's convenient:** a test that checks `vy < 0` ("did it bounce") is not the same as testing `vx` direction relative to hit offset ("did it bounce the *right way*"). A prior bottom-paddle deflection fix passed its own test while still being inverted on the horizontal axis, because the test only checked the easy half. When fixing a symmetry/direction bug, write the test to fail against the *old* code first, not just pass against the new code.
+- **`py_compile` passing ≠ working:** run a real headless frame loop (`SDL_VIDEODRIVER=dummy`) for a few hundred frames before calling something verified. Multiple bugs in this project's history compiled clean but crashed or misbehaved on first actual play.
