@@ -175,23 +175,25 @@ class PongGame:
                     self.state = STATE_SERVE
 
         # --- P1 (top) continuous movement ---
-        if keys[pygame.K_a]:
-            self.p1.move_left()
-        if keys[pygame.K_s]:
-            self.p1.move_right()
+        if self.state not in (STATE_PAUSED, STATE_CONFIRM_QUIT):
+            if keys[pygame.K_a]:
+                self.p1.move_left()
+            if keys[pygame.K_s]:
+                self.p1.move_right()
 
         # --- P2 / CPU (bottom) movement ---
-        if self.mode != "tower":
-            if keys[pygame.K_SEMICOLON]:
-                self.p2.move_left()
-            if keys[pygame.K_QUOTE]:
-                self.p2.move_right()
-        else:
-            move = self.cpu.get_move(self.p2.rect, self.ball)
-            if move == "left":
-                self.p2.move_left()
-            elif move == "right":
-                self.p2.move_right()
+        if self.state not in (STATE_PAUSED, STATE_CONFIRM_QUIT):
+            if self.mode != "tower":
+                if keys[pygame.K_SEMICOLON]:
+                    self.p2.move_left()
+                if keys[pygame.K_QUOTE]:
+                    self.p2.move_right()
+            else:
+                move = self.cpu.get_move(self.p2.rect, self.ball)
+                if move == "left":
+                    self.p2.move_left()
+                elif move == "right":
+                    self.p2.move_right()
 
     def update(self):
         if self.state == STATE_PAUSED:
