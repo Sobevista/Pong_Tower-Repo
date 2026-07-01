@@ -429,7 +429,12 @@ class PongGame:
             self.draw()
             self.clock.tick(FPS)
 
-        pygame.quit()
+        # NOTE: do NOT call pygame.quit() here. This method is called for
+        # both "exit to menu" and "quit the whole app" — tearing down
+        # pygame unconditionally broke returning to the menu (the menu's
+        # font/display calls would fail right after, since pygame.quit()
+        # uninitializes everything). The caller (__main__) knows which
+        # case it is and owns the decision to actually quit pygame.
         return self._exit_target
 
     def exit_to(self, target="menu"):
@@ -469,6 +474,11 @@ if __name__ == "__main__":
 
         # Game loop ended — check where we go
         if exit_target == "menu":
-            current_mode = None   # back to menu
+            current_mode = None   # back to menu, pygame stays alive
         else:
-            break   # quit entirely
+            break   # actually quit entirely
+
+    # pygame.quit() belongs here and only here: this is the one place we
+    # know for certain the whole app is exiting, not just returning to
+    # the menu between rounds.
+    pygame.quit()

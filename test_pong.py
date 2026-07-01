@@ -133,6 +133,28 @@ class TestStartScreen(unittest.TestCase):
         pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {'key': pygame.K_RETURN}))
         self.assertEqual(menu.handle_input(), "multiplayer")
 
+    def test_exit_to_menu_does_not_tear_down_pygame(self):
+        """Regression test: 'when I exit from a game it still exits the app
+        instead of going to the start screen'. PongGame.run() used to call
+        pygame.quit() unconditionally at the end -- including when the exit
+        reason was 'menu', not 'quit the whole app'. pygame.quit() tears
+        down the font/display modules, so the very next StartScreen.draw()
+        call (which touches pygame.font) threw immediately. This test
+        confirms pygame is still alive and the menu is still usable
+        immediately after a game session ends with exit_target='menu'."""
+        game = PongGame(mode="multiplayer")
+        game.exit_to("menu")
+        exit_target = game.run()
+        self.assertEqual(exit_target, "menu")
+        self.assertTrue(pygame.get_init(), "pygame was torn down on exit-to-menu")
+
+        # The real symptom: does the menu actually still work afterward?
+        menu = StartScreen()
+        try:
+            menu.draw(pygame.display.get_surface())
+        except Exception as e:
+            self.fail(f"Menu unusable after returning from a game: {e}")
+
 
 if __name__ == "__main__":
     unittest.main()
