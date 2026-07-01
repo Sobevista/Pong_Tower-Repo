@@ -7,6 +7,7 @@ from game import PongGame, STATE_PLAYING, STATE_PAUSED
 from paddle import Paddle
 from ball import Ball
 from settings import WINDOW_HEIGHT
+from start_screen import StartScreen
 
 class TestPongGame(unittest.TestCase):
     def setUp(self):
@@ -80,6 +81,58 @@ class TestPongGame(unittest.TestCase):
         ball = Ball()
         ball.serve(direction=-1)
         self.assertGreater(ball.vy, 0, f"serve(direction=-1) should go down, got vy={ball.vy}")
+
+class TestStartScreen(unittest.TestCase):
+    """Regression tests for the start screen. The original bug report:
+    'the title screen does not allow me to interact' -- total unresponsiveness,
+    not a partial key-mapping issue."""
+
+    def setUp(self):
+        pygame.init()
+        pygame.display.set_mode((1, 1))  # headless-safe minimal surface
+
+    def tearDown(self):
+        pygame.event.clear()
+        pygame.quit()
+
+    def test_menu_responds_to_single_event_get_call(self):
+        """Root cause of 'menu is completely unresponsive': game.py's __main__
+        block used to call pygame.event.get() once to check for QUIT, then
+        called menu.handle_input() -- which calls pygame.event.get() again.
+        The first call drains the queue, so the second one always sees an
+        empty queue. This test simulates the CORRECT pattern (single
+        event.get() call, inside handle_input only) and confirms a keypress
+        is actually seen. If someone reintroduces an outer event.get() call
+        around the menu loop, this test won't catch that directly -- but it
+        documents the exact failure mode so it doesn't get reintroduced
+        silently. See HANDOFF.md / SKILLS.md pitfall notes.
+        """
+        menu = StartScreen()
+        pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {'key': pygame.K_RETURN}))
+        result = menu.handle_input()
+        self.assertEqual(result, "tower", "Menu did not respond to ENTER at all")
+
+    def test_pressing_1_selects_tower_directly(self):
+        menu = StartScreen()
+        pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {'key': pygame.K_1}))
+        self.assertEqual(menu.handle_input(), "tower")
+
+    def test_pressing_2_selects_multiplayer_directly(self):
+        """Regression test: hint text says 'ENTER or 1/2 = Select', but the
+        old KEY_MAP overloaded the same int both as a nav direction and an
+        option index, so pressing 2 just moved the cursor down instead of
+        selecting Multiplayer."""
+        menu = StartScreen()
+        pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {'key': pygame.K_2}))
+        self.assertEqual(menu.handle_input(), "multiplayer")
+
+    def test_navigation_then_enter_selects_highlighted_option(self):
+        menu = StartScreen()
+        pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {'key': pygame.K_DOWN}))
+        self.assertIsNone(menu.handle_input(), "DOWN alone should only move the cursor")
+        pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {'key': pygame.K_RETURN}))
+        self.assertEqual(menu.handle_input(), "multiplayer")
+
 
 if __name__ == "__main__":
     unittest.main()

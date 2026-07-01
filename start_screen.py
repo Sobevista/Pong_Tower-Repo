@@ -13,18 +13,14 @@ OPTIONS = [
     ("multiplayer",  "MULTIPLIER",        "Endless casual play. No rules, no mercy."),
 ]
 
-KEY_MAP = {
-    pygame.K_1: 0,
-    pygame.K_2: 1,
-    pygame.K_a: 0,
-    pygame.K_s: 0,
-    pygame.K_k: 1,
-    pygame.K_l: 1,
-    pygame.K_UP: -1,
-    pygame.K_DOWN: 1,
-    pygame.K_w: -1,
-    pygame.K_s: 1,
-}
+# Matches the on-screen hint text exactly: "W/S or UP/DOWN = Navigate
+# ENTER or 1/2 = Select". Previously these were combined into one
+# overloaded dict where the value doubled as both a navigation direction
+# and an option index -- which meant pressing "2" moved the cursor down
+# instead of selecting MULTIPLIER directly, contradicting the hint text.
+NAV_UP_KEYS = {pygame.K_UP, pygame.K_w}
+NAV_DOWN_KEYS = {pygame.K_DOWN, pygame.K_s}
+DIRECT_SELECT_KEYS = {pygame.K_1: 0, pygame.K_2: 1}
 
 
 class StartScreen:
@@ -45,15 +41,13 @@ class StartScreen:
                 if event.key in (pygame.K_ESCAPE, pygame.K_q):
                     pygame.quit()
                     sys.exit(0)
-                if event.key in KEY_MAP:
-                    idx = KEY_MAP[event.key]
-                    if idx == -1:
-                        self.selected = (self.selected - 1) % len(OPTIONS)
-                    elif idx == 1:
-                        self.selected = (self.selected + 1) % len(OPTIONS)
-                    else:
-                        return OPTIONS[idx][0]
-                if event.key == pygame.K_RETURN:
+                if event.key in NAV_UP_KEYS:
+                    self.selected = (self.selected - 1) % len(OPTIONS)
+                elif event.key in NAV_DOWN_KEYS:
+                    self.selected = (self.selected + 1) % len(OPTIONS)
+                elif event.key in DIRECT_SELECT_KEYS:
+                    return OPTIONS[DIRECT_SELECT_KEYS[event.key]][0]
+                elif event.key == pygame.K_RETURN:
                     return OPTIONS[self.selected][0]
         return None
 

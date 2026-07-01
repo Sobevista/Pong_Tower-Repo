@@ -451,10 +451,13 @@ if __name__ == "__main__":
         if current_mode is None:
             selected_mode = None
             while selected_mode is None:
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                        pygame.quit()
-                        sys.exit(0)
+                # NOTE: do NOT call pygame.event.get() out here.
+                # menu.handle_input() already drains the queue itself
+                # (and already handles QUIT internally). A second
+                # pygame.event.get() call in this outer loop was eating
+                # every event -- including every keypress -- before
+                # handle_input() ever saw them. That's why the start
+                # screen was completely unresponsive.
                 selected_mode = menu.handle_input()
                 menu.draw(screen)
                 clock.tick(FPS)
