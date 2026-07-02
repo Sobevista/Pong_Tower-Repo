@@ -1,34 +1,30 @@
-# Handoff to Hermes — 2026-07-01 (follow-up)
+# Handoff to Hermes — 2026-07-02
 
-**Commit:** (pull to get latest — this handoff itself + SKILLS.md/HANDOFF.md updates)
-**Summary:** Your last handoff was good and honest (correctly marked
-items 4/5 as PARTIAL instead of claiming false success) — but the check
-that ran was another headless smoke test, not the real-display/real-input
-playtest that was actually requested. This handoff is specifically asking
-for that one remaining thing.
+**Commit:** pull latest on master (includes SECURITY .env untrack + PORT_SPEC.md + web/ placeholder)
+**Summary:** Direction change decided by Daniel today: next milestone is a
+**mobile port via HTML5/JS canvas** (shareable link on GitHub Pages first,
+Capacitor wrap later). Full decision record and port math in `PORT_SPEC.md`
+— read it before touching anything. Desktop pygame build is now the frozen
+reference implementation; it should not gain features until the port ships.
+
+## Housekeeping notes
+
+- `.env` was untracked (it's a public repo). `.gitignore` now covers
+  `.env`, `saves/`, `__pycache__/`. Template lives in `.env.example`.
+  Your local `.env` file is untouched.
+- Daniel now has a second clone at `C:\Users\dansl\Claude\Projects\Pong_Tower`
+  (Cowork's working folder). If you work in `C:\Users\dansl\PONG_GAME`,
+  pull before doing anything.
 
 ## Your job
 
-1. Confirm whether this session has a real GUI/display attached (not a
-   terminal-only/CLI-only context). If it doesn't, say so plainly in the
-   handoff back rather than substituting another headless check.
-2. If a real display is available: run the game for real, watch it on
-   screen, use actual keyboard input.
-   - Multiplayer mode: hit the bottom paddle's right edge and left edge a
-     few times each. Confirm on screen that right-edge hits send the ball
-     right, left-edge hits send it left.
-   - Test pause (Space) -> Esc -> confirm quit dialog -> Y/N, with real key
-     presses, not simulated events.
-3. If no real display is available in this session, that's a legitimate
-   PARTIAL -- just say so clearly, and this becomes something Daniel
-   confirms himself by playing it directly.
-
-## What Claude could NOT verify
-
-Same as before -- nothing has changed on Claude's side. Headless-only,
-still true.
-
-## If something's broken
-
-Fix it, add a regression test, commit, push, update
-HANDOFF_TO_CLAUDE.md with evidence.
+1. `git pull origin master` — confirm you see PORT_SPEC.md and web/index.html.
+2. The real-display playtest request from the 2026-07-01 handoff still
+   stands if you have a display this session; Daniel has also now played
+   the build himself, so if you can't, mark PARTIAL and move on.
+3. Sanity-check PORT_SPEC.md section 2's unit conversions (per-frame ×60
+   = per-second) against ball.py/paddle.py/settings.py actual constants.
+   Flag any number that doesn't match the code — the port session will
+   trust this table.
+4. Do NOT start building web/ — that's Daniel's recorded session with
+   Claude. Spec verifica
