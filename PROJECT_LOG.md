@@ -190,3 +190,24 @@ These fire/exist but have gaps. Explicit here so they survive across threads:
 
 (Existing PORT_SPEC §10 post-port backlog still stands: achievement popups polish,
 paddle upgrades, power-ups, 4-player.)
+
+---
+
+## BACKLOG — playtest notes (2026-07-03, do NOT lose)
+
+5. **Ball trail hurts the eyes — reads as a prominent "pulsing" shadow while
+   moving.** Daniel flagged during first play. Fix after usage reset: cut the
+   trail alpha/length way down (or drop the trail entirely) and reconsider the
+   white glare dot, which likely adds to the flicker. Applies to the web build;
+   check the desktop pygame trail too (BALL_TRAIL_ALPHA).
+6. **Control scheme inconsistency.** Web keyboard fallback uses A/D (left-right);
+   desktop uses A/S. A/D reads more naturally for a horizontal paddle — pick ONE
+   scheme and make desktop + web match. (Daniel noticed controls "switched to
+   A and D.")
+7. **Achievement SKINS reward system** — the big one. Earning achievements should
+   unlock paddle/ball skins, which requires: (a) an inventory system, (b) a
+   player/profile page to view + equip them, and (c) tie-in to POWER-UPS for
+   tower mode so the player can get an edge on the CPU. This pulls Phase 3
+   (power-ups: boost/spin/wide already scaffolded in code) and Phase 4 (profile,
+   unlockables) together into one reward loop. Design note: power-ups only in
+   tower play, as a progression carrot vs the CPU.
