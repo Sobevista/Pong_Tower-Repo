@@ -33,6 +33,8 @@ changes it.
   screen pixels in game logic.
 - Ball bounces off LEFT/RIGHT walls; scores when it exits TOP (bottom
   player's point) or BOTTOM (top player's point). Same as desktop.
+- Center line: HORIZONTAL dashed line at mid-height (it divides the
+  top/bottom territories). Paddles re-center on every serve.
 
 ## 2. Physics — convert frame-based to time-based (dt)
 

@@ -28,6 +28,11 @@ before the fix (per SKILLS.md "test what you claim").
   difficulty examples corrected (floor 5 = 0.9), honest aspect-swap
   balance note, dt clamp + substep collision guards.
 
+## Addendum (same day, Daniel's playtest feedback)
+
+- Center dashed line is now HORIZONTAL (matches the top/bottom territory
+  split) and paddles re-center on every serve. One new test (20 total).
+
 ## Known-and-deliberately-NOT-fixed (backlog, do not "fix" ad hoc)
 
 - perfect_match and no_miss are the same condition (always unlock together)

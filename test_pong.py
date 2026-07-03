@@ -188,6 +188,18 @@ class TestAdversarialFindings(unittest.TestCase):
                 self.assertEqual(game.state, STATE_TOWER_INTRO,
                     "Floor 2 should announce itself with the intro overlay")
 
+    def test_paddles_recenter_on_every_serve(self):
+        """Daniel 2026-07-03: paddles must reset to center at the start
+        of each serve, not stay wherever the last rally left them."""
+        game = PongGame(mode="multiplayer")
+        game.p1.rect.x = 0
+        game.p2.rect.x = WINDOW_WIDTH - game.p2.rect.width
+        game._check_serve_reset(direction=1)
+        self.assertEqual(game.p1.rect.centerx, WINDOW_WIDTH // 2,
+            "P1 not re-centered on serve")
+        self.assertEqual(game.p2.rect.centerx, WINDOW_WIDTH // 2,
+            "P2 not re-centered on serve")
+
     def test_tower_floor_5_milestone_unlocks(self):
         """Finding R5: check_tower_milestone was never called — Floor 5
         Conqueror was unobtainable despite tower mode shipping."""

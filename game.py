@@ -319,6 +319,10 @@ class PongGame:
         self.serve_direction = direction
         self.ball.reset()
         self.ball.serve_delay = SERVE_DELAY_FRAMES
+        # Paddles return to center for every serve — a point shouldn't
+        # start with either player stranded in a corner.
+        self.p1.reset()
+        self.p2.reset()
         self.state = STATE_SERVE
 
     def _trigger_win(self, winner_id):
@@ -369,12 +373,14 @@ class PongGame:
     def draw(self):
         self.screen.fill(BACKGROUND_COLOR)
 
-        # Vertical dashed center line
+        # Horizontal dashed center line — divides the two players'
+        # territories (paddles are top/bottom, so the halves are top and
+        # bottom; the old vertical line implied a left/right split)
         dash_len = 20
         gap = 15
-        cx = WINDOW_WIDTH // 2
-        for y in range(0, WINDOW_HEIGHT, dash_len + gap):
-            r = pygame.Rect(cx - 4, y, 8, dash_len)
+        cy = WINDOW_HEIGHT // 2
+        for x in range(0, WINDOW_WIDTH, dash_len + gap):
+            r = pygame.Rect(x, cy - 4, dash_len, 8)
             pygame.draw.rect(self.screen, CENTER_LINE_COLOR, r, border_radius=4)
 
         # Top/bottom border markers
