@@ -56,7 +56,13 @@ class PongGame:
         self.floor_victories = 0  # wins on current floor (need 1 to advance for now)
 
         pygame.init()
-        pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+        # Audio hardware may be absent (headless box, broken drivers).
+        # A game must degrade to silent, not crash at the constructor.
+        try:
+            if not pygame.mixer.get_init():
+                pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+        except pygame.error as e:
+            print("Audio unavailable — continuing without sound:", e)
 
         self.screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
         pygame.display.set_caption(WINDOW_TITLE)
@@ -69,7 +75,7 @@ class PongGame:
 
         # Sound engine
         self.sounds = {}
-        if SOUND_ENABLED:
+        if SOUND_ENABLED and pygame.mixer.get_init():
             try:
                 def _load(path):
                     if os.path.exists(path):
@@ -91,7 +97,8 @@ class PongGame:
         # CPU (tower mode only)
         self.cpu = None
         if self.mode == "tower":
-            # Difficulty ramps per floor: floor 1 = 0.3, floor 5 = 0.95
+            # Difficulty ramps per floor: floor 1 = 0.3, floor 5 = 0.9;
+            # the 0.95 cap first binds at floor 6.
             diff = 0.3 + (self.current_floor - 1) * 0.15
             self.cpu = CPU(difficulty=min(diff, 0.95))
 
@@ -110,8 +117,12 @@ class PongGame:
         self.total_rallies = 0
         self.min_ball_radius_seen = self.ball.start_radius
         self.max_speed_seen = self.ball.start_speed
-        self.p1_low_score = 0
-        self.p2_low_score = 0
+        # Comeback tracking: your score at the moment the opponent reached
+        # match point (10). None = opponent never got there. The old
+        # "low score" approach tracked min(score) which is always 0 —
+        # it made Comeback King fire on ANY 11-10 game.
+        self.p1_score_when_p2_hit_10 = None
+        self.p2_score_when_p1_hit_10 = None
         self.popup_queue = []
         self.popup_timer = 0
         self.state = STATE_SERVE
@@ -123,53 +134,80 @@ class PongGame:
             diff = 0.3 + (self.current_floor - 1) * 0.15
             self.cpu.update_difficulty(min(diff, 0.95))
         self.reset_match()
+        # Tower milestones (floor 5 / tower clear) — checked AFTER
+        # reset_match so the popup queue it clears doesn't eat these.
+        for key in self.achievements.check_tower_milestone(self.current_floor):
+            self._queue_popup(key)
+        # Every floor announces itself — the intro overlay is
+        # parameterized as "FLOOR {n}" and should show for n > 1 too.
+        self.state = STATE_TOWER_INTRO
+        self.intro_timer = 90
 
     def handle_input(self):
         keys = pygame.key.get_pressed()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
-            if event.type == pygame.KEYDOWN:
+            if event.type != pygame.KEYDOWN:
+                continue
+
+            # Each KEYDOWN is consumed by exactly ONE handler below.
+            # These used to be sequential ifs on the same event, so a
+            # single keypress cascaded through several handlers: resuming
+            # from pause also launched the serve, R on a tower win
+            # skipped the next floor's intro AND countdown, and R during
+            # the confirm-quit dialog silently reset the match.
+
+            if event.key == pygame.K_ESCAPE:
                 # --- Quit flow: Paused → Confirm → Menu ---
-                if event.key == pygame.K_ESCAPE:
-                    if self.state == STATE_CONFIRM_QUIT:
-                        self.state = STATE_PAUSED          # N: cancel quit
-                    elif self.state == STATE_PAUSED:
-                        self.state = STATE_CONFIRM_QUIT   # 2nd Esc → confirm
-                    else:
-                        self.state = STATE_PAUSED          # 1st Esc during play
-
-                if event.key == PAUSE_KEY:
-                    if self.state == STATE_PAUSED:
-                        self.state = STATE_PLAYING if self.ball.serve_delay == 0 else STATE_SERVE
-                    elif self.state == STATE_CONFIRM_QUIT:
-                        self.state = STATE_PAUSED
-                    elif self.state in (STATE_PLAYING, STATE_SERVE, STATE_TOWER_INTRO):
-                        self.state = STATE_PAUSED
-
                 if self.state == STATE_CONFIRM_QUIT:
-                    if event.key == pygame.K_y:
-                        self.exit_to("menu")
-                    elif event.key == pygame.K_n:
-                        self.state = STATE_PAUSED
+                    self.state = STATE_PAUSED          # N: cancel quit
+                elif self.state == STATE_PAUSED:
+                    self.state = STATE_CONFIRM_QUIT    # 2nd Esc → confirm
+                elif self.state in (STATE_WIN, STATE_GAME_OVER):
+                    self.exit_to("menu")               # what the overlay promises
+                else:
+                    self.state = STATE_PAUSED          # 1st Esc during play
+                continue
 
-                if event.key == pygame.K_r:
-                    if self.state == STATE_WIN:
-                        if self.mode == "tower":
-                            self.advance_floor()
-                        else:
-                            self.reset_match()
-                    elif self.state == STATE_GAME_OVER:
-                        self.__init__(mode=self.mode, starting_floor=1)
+            if event.key == PAUSE_KEY:
+                if self.state == STATE_PAUSED:
+                    self.state = STATE_PLAYING if self.ball.serve_delay == 0 else STATE_SERVE
+                elif self.state == STATE_CONFIRM_QUIT:
+                    self.state = STATE_PAUSED
+                elif self.state in (STATE_PLAYING, STATE_SERVE, STATE_TOWER_INTRO):
+                    self.state = STATE_PAUSED
+                continue
+
+            if self.state == STATE_CONFIRM_QUIT:
+                # The dialog owns the keyboard: Y quits, N cancels,
+                # everything else (including R) is swallowed.
+                if event.key == pygame.K_y:
+                    self.exit_to("menu")
+                elif event.key == pygame.K_n:
+                    self.state = STATE_PAUSED
+                continue
+
+            if event.key == pygame.K_r:
+                if self.state == STATE_WIN:
+                    if self.mode == "tower":
+                        self.advance_floor()
                     else:
                         self.reset_match()
+                elif self.state == STATE_GAME_OVER:
+                    self.__init__(mode=self.mode, starting_floor=1)
+                else:
+                    self.reset_match()
+                continue
 
-                if self.state == STATE_SERVE and self.ball.serve_delay > 0:
-                    self.state = STATE_PLAYING
-                    self.ball.serve(direction=self.serve_direction)
+            if self.state == STATE_SERVE and self.ball.serve_delay > 0:
+                self.state = STATE_PLAYING
+                self.ball.serve(direction=self.serve_direction)
+                continue
 
-                if self.state == STATE_TOWER_INTRO:
-                    self.state = STATE_SERVE
+            if self.state == STATE_TOWER_INTRO:
+                self.state = STATE_SERVE
+                continue
 
         # --- P1 (top) continuous movement ---
         if self.state not in (STATE_PAUSED, STATE_CONFIRM_QUIT):
@@ -220,8 +258,6 @@ class PongGame:
 
             self.min_ball_radius_seen = min(self.min_ball_radius_seen, self.ball.radius)
             self.max_speed_seen = max(self.max_speed_seen, self.ball.speed)
-            self.p1_low_score = min(self.p1_low_score, self.p1.score)
-            self.p2_low_score = min(self.p2_low_score, self.p2.score)
 
             ball_rect = self.ball.get_rect()
 
@@ -239,13 +275,21 @@ class PongGame:
 
             if self.ball.is_out_top():
                 self.p2.score += 1
-                self.achievements.check_first_blood()
+                # First Blood belongs to a human point — in tower mode
+                # the bottom paddle is the CPU, so its points don't count.
+                if self.mode != "tower" and self.achievements.check_first_blood():
+                    self._queue_popup("first_blood")
+                if self.p2.score == 10 and self.p1_score_when_p2_hit_10 is None:
+                    self.p1_score_when_p2_hit_10 = self.p1.score
                 self._play_sound("score")
                 self._check_serve_reset(direction=-1)
 
             elif self.ball.is_out_bottom():
                 self.p1.score += 1
-                self.achievements.check_first_blood()
+                if self.achievements.check_first_blood():
+                    self._queue_popup("first_blood")
+                if self.p1.score == 10 and self.p2_score_when_p1_hit_10 is None:
+                    self.p2_score_when_p1_hit_10 = self.p2.score
                 self._play_sound("score")
                 self._check_serve_reset(direction=1)
 
@@ -262,6 +306,14 @@ class PongGame:
 
         if self.popup_timer > 0:
             self.popup_timer -= 1
+            if self.popup_timer == 0:
+                self.popup_queue = []
+
+    def _queue_popup(self, key):
+        """Queue an achievement-unlock popup for ~4s of display."""
+        if key not in self.popup_queue:
+            self.popup_queue.append(key)
+        self.popup_timer = 240
 
     def _check_serve_reset(self, direction):
         self.serve_direction = direction
@@ -271,28 +323,34 @@ class PongGame:
 
     def _trigger_win(self, winner_id):
         self.state = STATE_WIN
+        total = self.p1.score + self.p2.score
         if winner_id == 1:
             self.winner_text = "P1 WINS"
-            total = self.p1.score + self.p2.score
-            self.achievements.check_perfect(self.p1.score, self.p2.score)
-            self.achievements.check_no_miss(self.p2.score)
-            self.achievements.check_comeback(self.p1_low_score, self.p2.score)
-            self.achievements.check_shrink_master(self.min_ball_radius_seen)
-            self.achievements.check_marathon(total)
-            self.achievements.check_speed_demon(self.min_ball_radius_seen, self.max_speed_seen)
+            my_score, opp_score = self.p1.score, self.p2.score
+            # Score I had at the moment the opponent reached match point;
+            # None means they never did — no comeback possible (99 > 8).
+            low = self.p1_score_when_p2_hit_10
         else:
             self.winner_text = "P2 WINS"
-            total = self.p1.score + self.p2.score
-            self.achievements.check_perfect(self.p2.score, self.p1.score)
-            self.achievements.check_no_miss(self.p1.score)
-            self.achievements.check_comeback(self.p2_low_score, self.p1.score)
-            self.achievements.check_shrink_master(self.min_ball_radius_seen)
-            self.achievements.check_marathon(total)
-            self.achievements.check_speed_demon(self.min_ball_radius_seen, self.max_speed_seen)
+            my_score, opp_score = self.p2.score, self.p1.score
+            low = self.p2_score_when_p1_hit_10
 
-        self.achievements.check_first_win()
-        self.achievements.check_rally_milestone(self.total_rallies)
-        self.achievements.save()
+        a = self.achievements
+        results = {
+            "perfect_match": a.check_perfect(my_score, opp_score),
+            "no_miss": a.check_no_miss(opp_score),
+            "comeback_king": a.check_comeback(99 if low is None else low, opp_score),
+            "shrink_master": a.check_shrink_master(self.min_ball_radius_seen),
+            "marathon": a.check_marathon(total),
+            "speed_demon": a.check_speed_demon(self.min_ball_radius_seen, self.max_speed_seen),
+            "first_win": a.check_first_win(),
+            "rally_100": a.check_rally_milestone(self.total_rallies),
+        }
+        for key, newly in results.items():
+            if newly:
+                self._queue_popup(key)
+
+        a.save()
         self._play_sound("win")
 
     def _trigger_tower_game_over(self):
@@ -395,7 +453,9 @@ class PongGame:
             self.screen.blit(overlay, (0, 0))
             ws = self.title_font.render(self.winner_text, True, GOLD)
             self.screen.blit(ws, (WINDOW_WIDTH // 2 - ws.get_width() // 2, WINDOW_HEIGHT // 2 - 80))
-            rs = self.hud_font.render("R = next floor   |   ESC = quit to menu", True, WHITE)
+            win_hint = ("R = next floor   |   ESC = quit to menu" if self.mode == "tower"
+                        else "R = rematch   |   ESC = quit to menu")
+            rs = self.hud_font.render(win_hint, True, WHITE)
             self.screen.blit(rs, (WINDOW_WIDTH // 2 - rs.get_width() // 2, WINDOW_HEIGHT // 2))
 
         # Game over (CPU win)
@@ -410,14 +470,15 @@ class PongGame:
             self.screen.blit(fl, (WINDOW_WIDTH // 2 - fl.get_width() // 2, WINDOW_HEIGHT // 2 - 10))
             self.screen.blit(rs, (WINDOW_WIDTH // 2 - rs.get_width() // 2, WINDOW_HEIGHT // 2 + 40))
 
-        # Achievement popups
+        # Achievement popups (stacked; no emoji icons — consolas renders
+        # them as tofu boxes on Windows)
         if self.popup_timer > 0:
-            for key in self.popup_queue:
+            for i, key in enumerate(self.popup_queue):
                 ach = self.achievements.achievements.get(key)
                 if ach and ach.get("unlocked"):
-                    pop = f"{ach['icon']}  {ach['name']}: {ach['description']}"
+                    pop = f"UNLOCKED — {ach['name']}: {ach['description']}"
                     ps2 = self.hud_font.render(pop, True, GOLD)
-                    self.screen.blit(ps2, (20, WINDOW_HEIGHT - 60))
+                    self.screen.blit(ps2, (20, WINDOW_HEIGHT - 60 - i * 28))
 
         pygame.display.flip()
 
@@ -444,7 +505,10 @@ class PongGame:
 
 if __name__ == "__main__":
     pygame.init()
-    pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+    try:
+        pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+    except pygame.error as e:
+        print("Audio unavailable — continuing without sound:", e)
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
     from start_screen import StartScreen
     menu = StartScreen()

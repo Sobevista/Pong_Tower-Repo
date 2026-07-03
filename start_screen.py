@@ -10,7 +10,7 @@ from settings import (
 
 OPTIONS = [
     ("tower",        "PONG TOWER",       "Climb the tower. Affixes, floors, unlocks."),
-    ("multiplayer",  "MULTIPLIER",        "Endless casual play. No rules, no mercy."),
+    ("multiplayer",  "MULTIPLAYER",       "Endless casual play. No rules, no mercy."),
 ]
 
 # Matches the on-screen hint text exactly: "W/S or UP/DOWN = Navigate

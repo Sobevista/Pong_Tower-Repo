@@ -161,10 +161,14 @@ class AchievementManager:
         return False
 
     def check_tower_milestone(self, floor):
-        if floor >= 5 and not self.achievements.get("tower_floor_5", {}).get("unlocked"):
-            self.unlock("tower_floor_5")
-        if floor >= 10 and not self.achievements.get("tower_conqueror", {}).get("unlocked"):
-            self.unlock("tower_conqueror")
+        """Returns the list of keys newly unlocked by reaching this floor,
+        so the caller can show popups for exactly those."""
+        newly = []
+        if floor >= 5 and self.unlock("tower_floor_5"):
+            newly.append("tower_floor_5")
+        if floor >= 10 and self.unlock("tower_conqueror"):
+            newly.append("tower_conqueror")
+        return newly
 
     def check_affix(self, active_count):
         if active_count >= 2:

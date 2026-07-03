@@ -26,8 +26,12 @@ class CPU:
         paddle_rect: the CPU's paddle
         ball: the ball object
         """
-        # Only react when ball is coming toward bottom paddle (vy > 0 = moving down)
-        if ball.vy < 0.5:  # ball moving up or still — stay idle
+        # Only react when ball is coming toward the bottom paddle
+        # (vy > 0 = moving down). This must be a SIGN check, not a
+        # magnitude threshold: the old `vy < 0.5` went permanently blind
+        # to max-deflection edge hits, where a legally descending ball
+        # has vy ~= 0.45 — the CPU idled while the ball crawled past it.
+        if ball.vy <= 0:  # ball moving up or perfectly horizontal — stay idle
             return None
 
         # Jitter target slightly so CPU isn't robotic
