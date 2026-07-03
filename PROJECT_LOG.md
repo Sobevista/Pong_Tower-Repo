@@ -30,9 +30,13 @@ Phase 2.5 — Hardening        ▼ DONE (2026-07-03)
   ├─ Horizontal center line; paddles re-center per serve (playtest)
   └─ Test suite 12 → 20, all proven to fail against pre-fix code
 
-Phase M — Mobile Port        ← NEXT (recorded session; PORT_SPEC.md rev 2)
-  ├─ HTML5/JS canvas, portrait 700×1000, GitHub Pages link first
-  └─ Milestones M1–M6 in PORT_SPEC §10
+Phase M — Mobile Port        ▼ v1 DONE (2026-07-03, not recorded)
+  ├─ HTML5/JS canvas, portrait 700×1000, single-file web/index.html
+  ├─ M1–M6 all in: letterbox+dt loop, touch drag-follow, ball physics,
+  │   state machine, tower/CPU (sign flip), WebAudio synth
+  ├─ Touch controls: split-zone drag-follow (bottom=human in tower, both in 2P)
+  ├─ Stats & Awards screen added early (achievements now viewable) + localStorage
+  └─ Verified headless: 21 logic tests + all-states/300-frame render smoke
 
 Phase 3 — Stacking           (after mobile port)
   ├─ Multiplayer 4-player input (IJKL + Numpad)
@@ -134,3 +138,55 @@ on first real frame).
 transcripts or re-uploaded files — first real test of the shared-repo,
 two-agent loop described in the Git Workflow section of SKILLS.md.
 
+---
+
+## Session: Web port v1 (2026-07-03, port session, NOT recorded)
+
+Built the full HTML5/JS port in a single `web/index.html` per PORT_SPEC rev 2.
+Decision this session: skip recording (the repo IS the record); scope = port +
+a basic stats screen so the already-firing achievements have somewhere to live.
+
+**Shipped:**
+- Logical 700×1000 portrait field, letterbox scaling, dt loop with the two
+  mandatory guards (50ms clamp + substep collision — verified a max-speed ball
+  is caught, not tunneled, by the 15-thick paddle).
+- Touch controls (the only genuinely new part): split-zone drag-follow clamped
+  to paddle max speed; tower = bottom zone only (human is BOTTOM on mobile);
+  2P = both zones, multi-touch by identifier. Keyboard kept as desktop fallback.
+- Ball physics ported verbatim (serve ±30°, wall bounce, paddle deflect ±1.5rad,
+  shrink/speed-up, burst-outside). Direction tests written FIRST and pass.
+- CPU sign flip handled: CPU is TOP, idles when vy≥0 (ball moving away). Tested
+  against the old magnitude-threshold bug.
+- Full state machine incl. the per-point serve loop that rev1 nearly dropped.
+- WebAudio synth (no files), unlocks on first gesture, silent-safe.
+- **Stats & Awards screen**: highest floor, floors cleared, games won, longest
+  rally, total rally hits, and all 12 achievements (earned/locked). localStorage.
+
+**Verification:** 21 headless logic assertions (paddle-hit axis both edges, CPU
+sign flip, serve direction, substep no-tunnel, scoring loop, win/game-over,
+floor-difficulty ramp) + a render smoke over every state and 300 tower frames.
+Mount truncation bit us again mid-build (file-tool write landed 12 lines on the
+shell side) — caught by the sentinel check, force-rewritten via bash, md5 now
+matches host. cowork-mount-survival earned its keep.
+
+---
+
+## BACKLOG — carried forward, do NOT lose (MVP+ features)
+
+These fire/exist but have gaps. Explicit here so they survive across threads:
+
+1. **Persistent cross-device user profile.** Today stats/achievements live in
+   browser localStorage — per-device, cleared if cache is wiped. Daniel wants a
+   real profile to check his stats. Needs: an identity (even just a name/PIN) and
+   a backend or synced store so the kids' tablet and his machine share progress.
+2. **Full stats page (desktop parity + history).** The web Stats screen is a v1;
+   extend with per-floor bests, win/loss record, session history, achievement
+   dates.
+3. **Leaderboard.** No leaderboard anywhere yet. Local (per-device high scores)
+   is the cheap first step; global needs the backend from item 1.
+4. Desktop achievements were firing (floor 5, rally 100) with NO in-game place to
+   view them — the web Stats screen closes that on mobile; do the same on desktop
+   (pygame profile/stats screen) when convenient.
+
+(Existing PORT_SPEC §10 post-port backlog still stands: achievement popups polish,
+paddle upgrades, power-ups, 4-player.)

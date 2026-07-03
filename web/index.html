@@ -2,18 +2,753 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Pong Tower</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #0a0a14; color: #ffffc8;
-    font-family: monospace; display: flex; align-items: center; justify-content: center; }
-  div { text-align: center; }
+  :root { --bg:#0a0a14; --ink:#ffffc8; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--ink);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    overflow:hidden; -webkit-user-select:none; user-select:none;
+    -webkit-tap-highlight-color: transparent; touch-action:none; }
+  #wrap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; }
+  canvas { display:block; touch-action:none; background:var(--bg); }
 </style>
 </head>
 <body>
-<div>
-  <h1>PONG TOWER</h1>
-  <p>Mobile build lands here.<br>See PORT_SPEC.md — placeholder for GitHub Pages verification.</p>
-</div>
+<div id="wrap"><canvas id="c"></canvas></div>
+<script>
+"use strict";
+// ===========================================================================
+// Pong Tower — HTML5/JS port (PORT_SPEC.md rev 2 is the source of truth).
+// Logical portrait playfield 700 x 1000. Paddles on TOP and BOTTOM.
+// Physics is time-based (units/second) with a clamped, substepped dt loop.
+// ===========================================================================
+
+// ---- Logical geometry (units, never screen pixels) ----
+const PW = 700, PH = 1000;
+const PADDLE_W = 100, PADDLE_H = 15, MARGIN = 30, CORNER = 6;
+const BALL_START_R = 18, BALL_MIN_R = 5, BALL_SHRINK = 1.5;
+
+// ---- Speeds in units/second (per-frame desktop value x 60) ----
+const PADDLE_SPEED = 420;     // 7  * 60
+const BALL_START_SPEED = 360; // 6  * 60
+const BALL_MAX_SPEED = 1080;  // 18 * 60
+const BALL_SPEED_INC = 18;    // 0.3 * 60
+const SERVE_DELAY = 5.0;      // seconds (300 frames)
+const TOWER_INTRO = 1.5;      // seconds (90 frames)
+const WIN_SCORE = 11;
+const MAX_DEFLECT = 1.5;      // rad (~85 deg)
+const DT_CLAMP = 0.05;        // 50 ms guard
+
+// ---- Colors (from settings.py) ----
+const COL_BG = "#0a0a14";
+const COL_CENTER = "rgb(40,40,60)";
+const COL_TOP = "rgb(0,200,255)";     // cyan  — top paddle (P1 / CPU)
+const COL_BOTTOM = "rgb(255,80,80)";  // red   — bottom paddle (P2 / human)
+const COL_BALL = "rgb(255,255,200)";
+const COL_GOLD = "rgb(255,215,0)";
+const COL_GREEN = "rgb(80,220,100)";
+const COL_WHITE = "rgb(255,255,255)";
+const COL_INK = "#ffffc8";
+
+// ===========================================================================
+// Persistence (localStorage) — stats + achievements
+// ===========================================================================
+const ACH_DEFS = {
+  first_blood:     {name:"First Blood",        desc:"Score your first point",             icon:"\u{1F352}"},
+  perfect_match:   {name:"Perfect Match",      desc:"Win a game 11-0",                     icon:"\u{1F31F}"},
+  speed_demon:     {name:"Speed Demon",        desc:"Win a rally at minimum ball size",    icon:"⚡"},
+  marathon:        {name:"Marathon",           desc:"Win a game with 30+ total points",    icon:"\u{1F3C3}"},
+  comeback_king:   {name:"Comeback King",      desc:"Win after being down 8-10",           icon:"\u{1F451}"},
+  shrink_master:   {name:"Shrink Master",      desc:"Win where ball shrank below 8 radius",icon:"\u{1F53B}"},
+  rally_100:       {name:"Rally Century",      desc:"Hit 100 total rally shots",           icon:"\u{1F4AF}"},
+  first_win:       {name:"First Victory",      desc:"Win your first full game",            icon:"\u{1F3C6}"},
+  no_miss:         {name:"Clean Sweep",        desc:"Win without conceding a point",       icon:"\u{1F9F9}"},
+  tower_floor_5:   {name:"Floor 5 Conqueror",  desc:"Reach floor 5 of Pong Tower",         icon:"\u{1F5FC}"},
+  tower_conqueror: {name:"Tower Conqueror",    desc:"Clear the full Pong Tower (floor 10)",icon:"\u{1F3F0}"},
+};
+const LS_ACH = "pongTowerAchievements";
+const LS_STATS = "pongTowerStats";
+
+function loadJSON(key, fallback){
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
+  catch(e){ return fallback; }
+}
+function saveJSON(key, obj){
+  try { localStorage.setItem(key, JSON.stringify(obj)); } catch(e){}
+}
+
+const Store = {
+  ach: loadJSON(LS_ACH, {}),          // {key:true}
+  stats: loadJSON(LS_STATS, {
+    highestFloor:0, floorsCleared:0, longestRally:0,
+    totalRallyHits:0, gamesWon:0
+  }),
+  isUnlocked(k){ return !!this.ach[k]; },
+  unlock(k){                          // returns true if newly unlocked
+    if(!ACH_DEFS[k] || this.ach[k]) return false;
+    this.ach[k] = true; saveJSON(LS_ACH, this.ach); return true;
+  },
+  unlockedCount(){ return Object.keys(this.ach).filter(k=>this.ach[k]).length; },
+  addRallyHits(n){ this.stats.totalRallyHits += n; saveJSON(LS_STATS, this.stats); },
+  noteRally(r){ if(r > (this.stats.longestRally||0)){ this.stats.longestRally = r; saveJSON(LS_STATS, this.stats); } },
+  noteFloor(f){ if(f > (this.stats.highestFloor||0)){ this.stats.highestFloor = f; saveJSON(LS_STATS, this.stats); } },
+  floorCleared(){ this.stats.floorsCleared += 1; saveJSON(LS_STATS, this.stats); },
+  gameWon(){ this.stats.gamesWon += 1; saveJSON(LS_STATS, this.stats); },
+};
+
+// ===========================================================================
+// Audio — WebAudio synth, unlocked on first gesture (no files to load)
+// ===========================================================================
+const Audio2 = {
+  ctx:null,
+  init(){
+    if(this.ctx) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if(AC) this.ctx = new AC();
+    } catch(e){ this.ctx = null; }   // never crash on missing audio
+  },
+  resume(){ if(this.ctx && this.ctx.state === "suspended"){ this.ctx.resume().catch(()=>{}); } },
+  tone(freq, dur, type, vol){
+    if(!this.ctx) return;
+    try {
+      const t = this.ctx.currentTime;
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = type || "square"; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol||0.15, t+0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+      o.connect(g); g.connect(this.ctx.destination);
+      o.start(t); o.stop(t+dur+0.02);
+    } catch(e){}
+  },
+  hit(){ this.tone(440, 0.06, "square", 0.14); },
+  score(){ this.tone(220, 0.18, "sawtooth", 0.16); },
+  win(){ [523,659,784,1047].forEach((f,i)=> setTimeout(()=>this.tone(f,0.18,"triangle",0.16), i*110)); },
+};
+
+// ===========================================================================
+// Canvas + letterbox scaling
+// ===========================================================================
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+let scale = 1, offX = 0, offY = 0, viewW = PW, viewH = PH;
+
+function resize(){
+  const dpr = window.devicePixelRatio || 1;
+  const sw = window.innerWidth, sh = window.innerHeight;
+  scale = Math.min(sw/PW, sh/PH);       // letterbox: fit logical field
+  viewW = PW*scale; viewH = PH*scale;
+  offX = (sw - viewW)/2; offY = (sh - viewH)/2;
+  canvas.style.width = sw+"px"; canvas.style.height = sh+"px";
+  canvas.width = Math.round(sw*dpr); canvas.height = Math.round(sh*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener("resize", resize);
+
+function toLogicalX(px){ return (px - offX)/scale; }   // screen px -> logical
+function toLogicalY(py){ return (py - offY)/scale; }
+function L(v){ return v*scale; }          // logical length -> screen
+function X(v){ return offX + v*scale; }   // logical x -> screen
+function Y(v){ return offY + v*scale; }   // logical y -> screen
+
+// ===========================================================================
+// Entities
+// ===========================================================================
+function makePaddle(side){
+  return {
+    side, w:PADDLE_W, h:PADDLE_H,
+    cx: PW/2,
+    cy: side==="top" ? MARGIN : PH-MARGIN,   // center y of the paddle bar
+    targetX: PW/2,
+    reset(){ this.cx = PW/2; this.targetX = PW/2; },
+    left(){ return this.cx - this.w/2; },
+    right(){ return this.cx + this.w/2; },
+    top(){ return this.cy - this.h/2; },
+    bottom(){ return this.cy + this.h/2; },
+    follow(dt){                                     // move toward targetX, clamped
+      const maxStep = PADDLE_SPEED*dt;
+      let d = this.targetX - this.cx;
+      if(Math.abs(d) > maxStep) d = Math.sign(d)*maxStep;
+      this.cx += d;
+      this.cx = Math.max(this.w/2, Math.min(PW - this.w/2, this.cx));
+    },
+    moveDir(dir, dt){                               // CPU/explicit direction move
+      this.cx += dir*PADDLE_SPEED*dt;
+      this.cx = Math.max(this.w/2, Math.min(PW - this.w/2, this.cx));
+    }
+  };
+}
+
+function makeBall(){
+  return {
+    x:PW/2, y:PH/2, r:BALL_START_R, speed:BALL_START_SPEED,
+    vx:0, vy:0, angle:0, rally:0, serveDelay:0, trail:[], lastHitBy:null,
+    minRadiusSeen:BALL_START_R,
+    reset(){
+      this.x=PW/2; this.y=PH/2; this.r=BALL_START_R; this.speed=BALL_START_SPEED;
+      this.vx=0; this.vy=0; this.angle=0; this.rally=0; this.serveDelay=0;
+      this.trail=[]; this.lastHitBy=null; this.minRadiusSeen=BALL_START_R;
+    },
+    serve(direction){                 // +1 = toward TOP (up), -1 = toward BOTTOM (down)
+      this.serveDelay = 0;
+      const drift = (Math.random()*60 - 30) * Math.PI/180; // +/-30 deg
+      if(direction > 0) this.angle = -Math.PI/2 + drift;   // up (toward top)
+      else              this.angle =  Math.PI/2 + drift;   // down (toward bottom)
+      this.r = BALL_START_R;
+      this.speed = BALL_START_SPEED;                       // constant in practice
+      this.rally = 0; this.minRadiusSeen = this.r;
+      this._vel();
+    },
+    _vel(){ this.vx = this.speed*Math.cos(this.angle); this.vy = this.speed*Math.sin(this.angle); },
+    _wall(){
+      if(this.x - this.r <= 0){ this.x = this.r; this.angle = Math.PI - this.angle; this._vel(); }
+      else if(this.x + this.r >= PW){ this.x = PW - this.r; this.angle = Math.PI - this.angle; this._vel(); }
+    },
+    onPaddleHit(p){
+      this.rally += 1;
+      let off = (this.x - p.cx) / (p.w/2);
+      off = Math.max(-1, Math.min(1, off));
+      const deflect = off * MAX_DEFLECT;
+      if(p.side === "top") this.angle = Math.PI/2 - deflect;   // go DOWN; right hit -> right
+      else                 this.angle = -Math.PI/2 + deflect;  // go UP;   right hit -> right (mirror)
+      this.speed = Math.min(this.speed + BALL_SPEED_INC, BALL_MAX_SPEED);
+      this.r = Math.max(this.r - BALL_SHRINK, BALL_MIN_R);
+      if(this.r < this.minRadiusSeen) this.minRadiusSeen = this.r;
+      this._vel();
+      if(p.side === "top") this.y = p.bottom() + this.r + 1;   // burst outside paddle
+      else                 this.y = p.top() - this.r - 1;
+      this.lastHitBy = p.side;
+    },
+    outTop(){ return this.y + this.r < 0; },
+    outBottom(){ return this.y - this.r > PH; },
+  };
+}
+
+// axis-aligned overlap of ball vs paddle bar, only when moving toward it
+function ballHitsPaddle(ball, p){
+  if(ball.x + ball.r < p.left() || ball.x - ball.r > p.right()) return false;
+  if(p.side === "top"){
+    if(ball.vy >= 0) return false;                 // moving away
+    return (ball.y - ball.r <= p.bottom()) && (ball.y >= p.top() - ball.r);
+  } else {
+    if(ball.vy <= 0) return false;
+    return (ball.y + ball.r >= p.top()) && (ball.y <= p.bottom() + ball.r);
+  }
+}
+
+// ===========================================================================
+// CPU (tower). CPU is the TOP paddle. Reacts only when ball moves UP (vy<0).
+// The idle SIGN test flips with the side (desktop CPU was on bottom).
+// ===========================================================================
+function makeCPU(difficulty){
+  return {
+    diff: Math.max(0, Math.min(1, difficulty)),
+    errorMargin: (1 - Math.max(0,Math.min(1,difficulty)))*60,
+    curErr:0, curTimer:0,
+    setDiff(d){ this.diff = Math.max(0,Math.min(1,d)); this.errorMargin = (1-this.diff)*60; },
+    move(p, ball, dt){                     // returns -1 / +1 / 0
+      if(ball.vy >= 0) return 0;           // idle when ball moves down/away from top
+      this.curTimer -= dt*60;              // re-roll error every 15-45 frames
+      if(this.curTimer <= 0){
+        this.curErr = (Math.random()*2 - 1)*this.errorMargin;
+        this.curTimer = 15 + Math.random()*30;
+      }
+      let target = ball.x + this.curErr;
+      const half = p.w/2;
+      target = Math.max(half, Math.min(PW - half, target));
+      const dead = p.w*0.3;
+      if(p.cx < target - dead) return 1;
+      if(p.cx > target + dead) return -1;
+      return 0;
+    }
+  };
+}
+
+// ===========================================================================
+// Game controller + state machine
+// ===========================================================================
+const S = {
+  MENU:"menu", STATS:"stats", TOWER_INTRO:"tower_intro", SERVE:"serve",
+  PLAYING:"playing", WIN:"win", PAUSED:"paused", CONFIRM:"confirm_quit",
+  GAME_OVER:"game_over"
+};
+
+const Game = {
+  mode:"menu",           // "menu" | "tower" | "multiplayer"
+  state:S.MENU,
+  floor:1,
+  top:makePaddle("top"),
+  bottom:makePaddle("bottom"),
+  ball:makeBall(),
+  cpu:null,
+  serveDir:1,
+  introT:0,
+  prevState:null,
+  popups:[],             // {icon,name,t}
+  m:{},                  // per-match tracking
+
+  start(mode){
+    this.mode = mode;
+    this.floor = 1;
+    this.resetMatch();
+    if(mode === "tower"){
+      this.cpu = makeCPU(this._floorDiff(this.floor));
+      Store.noteFloor(1);
+      this.state = S.TOWER_INTRO; this.introT = TOWER_INTRO;
+    } else {
+      this.state = S.SERVE; this.ball.serveDelay = SERVE_DELAY;
+    }
+  },
+  _floorDiff(f){ return Math.min(0.3 + (f-1)*0.15, 0.95); },
+  resetMatch(){
+    this.top.reset(); this.bottom.reset();
+    this.ball.reset();
+    this.top._score = 0; this.bottom._score = 0;
+    this.serveDir = Math.random() < 0.5 ? 1 : -1;
+    this.m = { humanConceded:0, wasDown:false, rallyHitsThisMatch:0, minRadius:BALL_START_R, totalPoints:0 };
+    this.ball.serveDelay = SERVE_DELAY;
+  },
+  advanceFloor(){
+    Store.floorCleared();
+    this.floor += 1;
+    Store.noteFloor(this.floor);
+    this.cpu.setDiff(this._floorDiff(this.floor));
+    if(this.floor >= 5 && Store.unlock("tower_floor_5")) this.queuePopup("tower_floor_5");
+    if(this.floor >= 10 && Store.unlock("tower_conqueror")) this.queuePopup("tower_conqueror");
+    this.resetMatch();
+    this.state = S.TOWER_INTRO; this.introT = TOWER_INTRO;
+  },
+  queuePopup(key){
+    const a = ACH_DEFS[key]; if(!a) return;
+    this.popups.push({icon:a.icon, name:a.name, t:3.0});
+  },
+
+  scorePoint(scorer){    // scorer: "top" or "bottom"
+    Audio2.score();
+    Store.noteRally(this.ball.rally);
+    this.m.totalPoints++;
+    if(scorer === "top") this.top._score++; else this.bottom._score++;
+    if(this.mode === "tower" && scorer === "top") this.m.humanConceded++;
+    if(this.mode === "tower" && scorer === "bottom" && this.bottom._score === 1){
+      if(Store.unlock("first_blood")) this.queuePopup("first_blood");
+    }
+    if(this.ball.minRadiusSeen < this.m.minRadius) this.m.minRadius = this.ball.minRadiusSeen;
+    // comeback tracking: human (bottom) down 8-10?
+    if(this.mode==="tower" && this.bottom._score <= 8 && this.top._score >= 10) this.m.wasDown = true;
+
+    const ts = this.top._score, bs = this.bottom._score;
+    if(ts >= WIN_SCORE || bs >= WIN_SCORE){
+      if(this.mode==="tower" && ts >= WIN_SCORE){ this.state = S.GAME_OVER; return; }
+      this.triggerWin(bs >= WIN_SCORE ? "bottom" : "top");
+    } else {
+      this.serveDir = (scorer === "bottom") ? 1 : -1;  // conceding side receives
+      this.ball.reset(); this.ball.serveDelay = SERVE_DELAY;
+      this.top.reset(); this.bottom.reset();
+      this.state = S.SERVE;
+    }
+  },
+  triggerWin(winnerSide){
+    Audio2.win();
+    this.state = S.WIN;
+    const humanWon = (this.mode==="tower") ? (winnerSide==="bottom") : true;
+    Store.addRallyHits(this.m.rallyHitsThisMatch);
+    if(Store.stats.totalRallyHits >= 100 && Store.unlock("rally_100")) this.queuePopup("rally_100");
+    if(humanWon){
+      Store.gameWon();
+      if(Store.unlock("first_win")) this.queuePopup("first_win");
+      const myScore = (winnerSide==="bottom") ? this.bottom._score : this.top._score;
+      const oppScore = (winnerSide==="bottom") ? this.top._score : this.bottom._score;
+      if(myScore===11 && oppScore===0 && Store.unlock("perfect_match")) this.queuePopup("perfect_match");
+      if(this.mode==="tower"){
+        if(this.m.humanConceded===0 && Store.unlock("no_miss")) this.queuePopup("no_miss");
+        if(this.m.wasDown && Store.unlock("comeback_king")) this.queuePopup("comeback_king");
+      }
+      if(this.m.totalPoints >= 30 && Store.unlock("marathon")) this.queuePopup("marathon");
+      if(this.m.minRadius < 8 && Store.unlock("shrink_master")) this.queuePopup("shrink_master");
+      if(this.m.minRadius <= 6 && this.ball.speed >= BALL_MAX_SPEED*0.7 && Store.unlock("speed_demon")) this.queuePopup("speed_demon");
+    }
+  },
+
+  update(dt){
+    for(const p of this.popups) p.t -= dt;
+    this.popups = this.popups.filter(p => p.t > 0);
+
+    if(this.state === S.TOWER_INTRO){
+      this.introT -= dt;
+      if(this.introT <= 0){ this.state = S.SERVE; this.ball.serveDelay = SERVE_DELAY; }
+      return;
+    }
+    if(this.state === S.SERVE){
+      this.bottom.follow(dt);
+      if(this.mode!=="tower") this.top.follow(dt);
+      this.ball.serveDelay -= dt;
+      if(this.ball.serveDelay <= 0){ this.ball.serve(this.serveDir); this.state = S.PLAYING; }
+      return;
+    }
+    if(this.state !== S.PLAYING) return;
+
+    this.bottom.follow(dt);
+    if(this.mode === "tower"){
+      const dir = this.cpu.move(this.top, this.ball, dt);
+      if(dir !== 0) this.top.moveDir(dir, dt);
+    } else {
+      this.top.follow(dt);
+    }
+
+    // substep so a fast ball can't tunnel a thin paddle
+    const stepLen = this.ball.speed*dt;
+    let n = 1;
+    if(stepLen > this.ball.r) n = Math.ceil(stepLen / this.ball.r);
+    n = Math.min(n, 16);
+    const sub = dt/n;
+    for(let i=0;i<n;i++){
+      this.ball.x += this.ball.vx*sub;
+      this.ball.y += this.ball.vy*sub;
+      this.ball._wall();
+      if(ballHitsPaddle(this.ball, this.top)){ this.ball.onPaddleHit(this.top); Audio2.hit(); this.m.rallyHitsThisMatch++; }
+      else if(ballHitsPaddle(this.ball, this.bottom)){ this.ball.onPaddleHit(this.bottom); Audio2.hit(); this.m.rallyHitsThisMatch++; }
+      if(this.ball.outTop()){ this.scorePoint("bottom"); return; }
+      if(this.ball.outBottom()){ this.scorePoint("top"); return; }
+    }
+    this.ball.trail.push({x:this.ball.x, y:this.ball.y, r:this.ball.r, a:0.5});
+    if(this.ball.trail.length > 8) this.ball.trail.shift();
+    for(const t of this.ball.trail) t.a -= dt*2;
+    this.ball.trail = this.ball.trail.filter(t => t.a > 0);
+  },
+
+  // ---- input actions (one event = one transition) ----
+  tap(){
+    Audio2.init(); Audio2.resume();
+    switch(this.state){
+      case S.TOWER_INTRO: this.state = S.SERVE; this.ball.serveDelay = SERVE_DELAY; break;
+      case S.SERVE: this.ball.serve(this.serveDir); this.state = S.PLAYING; break;
+      case S.WIN:
+        if(this.mode==="tower") this.advanceFloor();
+        else { this.resetMatch(); this.state=S.SERVE; }
+        break;
+      case S.GAME_OVER: this.start("tower"); break;
+      default: break;
+    }
+  },
+  togglePause(){
+    if(this.state===S.PLAYING || this.state===S.SERVE || this.state===S.TOWER_INTRO){
+      this.prevState = this.state; this.state = S.PAUSED;
+    } else if(this.state===S.PAUSED){
+      this.state = this.prevState || S.PLAYING;
+    }
+  },
+  quitToMenu(){ this.mode="menu"; this.state=S.MENU; this.popups=[]; },
+};
+
+// ===========================================================================
+// Rendering
+// ===========================================================================
+function drawRoundRect(x,y,w,h,r,fill){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+  ctx.fillStyle = fill; ctx.fill();
+}
+function text(str, px, py, size, col, align){
+  ctx.fillStyle = col || COL_INK; ctx.textAlign = align || "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "600 " + size + "px ui-monospace, Menlo, Consolas, monospace";
+  ctx.fillText(str, px, py);
+}
+
+function drawField(){
+  ctx.fillStyle = "#05050a"; ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = COL_BG; ctx.fillRect(offX, offY, viewW, viewH);
+  ctx.strokeStyle = COL_CENTER; ctx.lineWidth = Math.max(1, L(3));
+  ctx.setLineDash([L(16), L(14)]);
+  ctx.beginPath(); ctx.moveTo(X(0), Y(PH/2)); ctx.lineTo(X(PW), Y(PH/2)); ctx.stroke();
+  ctx.setLineDash([]);
+}
+function drawPaddle(p){
+  const col = p.side==="top" ? COL_TOP : COL_BOTTOM;
+  drawRoundRect(X(p.left()), Y(p.top()), L(p.w), L(p.h), L(CORNER), col);
+}
+function drawBall(b){
+  for(const t of b.trail){
+    ctx.globalAlpha = Math.max(0, t.a);
+    ctx.beginPath(); ctx.arc(X(t.x), Y(t.y), L(t.r), 0, Math.PI*2);
+    ctx.fillStyle = COL_BALL; ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.beginPath(); ctx.arc(X(b.x), Y(b.y), L(b.r), 0, Math.PI*2);
+  ctx.fillStyle = COL_BALL; ctx.fill();
+  ctx.beginPath();
+  ctx.arc(X(b.x - b.r*0.25), Y(b.y - b.r*0.25), L(Math.max(2, b.r*0.35)), 0, Math.PI*2);
+  ctx.fillStyle = COL_WHITE; ctx.fill();
+}
+
+let pauseBtn = {x:0,y:0,r:0};
+function drawPauseButton(){
+  const r = L(34);
+  const cx = X(PW) - r - L(10), cy = Y(0) + r + L(10);
+  pauseBtn = {x:cx, y:cy, r:r};
+  ctx.globalAlpha = 0.5; ctx.fillStyle = "#20202e";
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
+  ctx.globalAlpha = 1; ctx.fillStyle = COL_INK;
+  const bw = r*0.22, bh = r*0.7;
+  ctx.fillRect(cx - bw*1.6, cy - bh/2, bw, bh);
+  ctx.fillRect(cx + bw*0.6, cy - bh/2, bw, bh);
+}
+function drawHUD(){
+  const g = Game;
+  const ts = g.top._score||0, bs = g.bottom._score||0;
+  text(String(ts), X(PW*0.5), Y(PH*0.32), L(120), "rgba(0,200,255,0.18)");
+  text(String(bs), X(PW*0.5), Y(PH*0.68), L(120), "rgba(255,80,80,0.18)");
+  const topLabel = g.mode==="tower" ? ("CPU  —  FLOOR "+g.floor) : "PLAYER 1";
+  text(topLabel, X(PW*0.5), Y(58), L(20), "rgba(255,255,200,0.6)");
+  text(g.mode==="tower" ? "YOU" : "PLAYER 2", X(PW*0.5), Y(PH-58), L(20), "rgba(255,255,200,0.6)");
+  drawPauseButton();
+}
+function drawPopups(){
+  let y = Y(PH*0.5) - L(150);
+  for(const p of Game.popups){
+    const a = Math.min(1, p.t);
+    ctx.globalAlpha = a;
+    const w = L(380), h = L(64), x = X(PW/2) - w/2;
+    drawRoundRect(x, y, w, h, L(10), "rgba(255,215,0,0.14)");
+    text(p.icon + "  " + p.name, X(PW/2), y + h/2, L(26), COL_GOLD);
+    ctx.globalAlpha = 1;
+    y += h + L(10);
+  }
+}
+function overlay(alpha){ ctx.fillStyle = "rgba(5,5,12,"+alpha+")"; ctx.fillRect(offX, offY, viewW, viewH); }
+
+let menuButtons = [];
+function drawButton(label, cx, cy, w, h, col){
+  const x = cx - w/2, y = cy - h/2;
+  drawRoundRect(x, y, w, h, L(10), col || "rgba(0,200,255,0.16)");
+  text(label, cx, cy, L(30), COL_INK);
+  return {x, y, w, h};
+}
+
+function drawMenu(){
+  drawField();
+  menuButtons = [];
+  text("PONG TOWER", X(PW/2), Y(PH*0.2), L(64), COL_GOLD);
+  text("climb the tower · beat every floor", X(PW/2), Y(PH*0.2)+L(50), L(20), "rgba(255,255,200,0.5)");
+  const bw = L(420), bh = L(84);
+  menuButtons.push({...drawButton("\u{1F5FC}  TOWER MODE", X(PW/2), Y(PH*0.44), bw, bh, "rgba(0,200,255,0.16)"), act:()=>Game.start("tower")});
+  menuButtons.push({...drawButton("\u{1F465}  2 PLAYERS", X(PW/2), Y(PH*0.44)+bh+L(20), bw, bh, "rgba(255,80,80,0.16)"), act:()=>Game.start("multiplayer")});
+  menuButtons.push({...drawButton("\u{1F4CA}  STATS & AWARDS", X(PW/2), Y(PH*0.44)+2*(bh+L(20)), bw, bh, "rgba(255,215,0,0.14)"), act:()=>{Game.state=S.STATS;}});
+  text("tap a button to begin", X(PW/2), Y(PH*0.9), L(18), "rgba(255,255,200,0.4)");
+}
+function drawStats(){
+  drawField(); overlay(0.55);
+  menuButtons = [];
+  const st = Store.stats;
+  text("STATS & AWARDS", X(PW/2), Y(70), L(40), COL_GOLD);
+  let y = Y(140);
+  const rows = [
+    ["Highest floor reached", st.highestFloor||0],
+    ["Floors cleared", st.floorsCleared||0],
+    ["Games won", st.gamesWon||0],
+    ["Longest rally", st.longestRally||0],
+    ["Total rally hits", st.totalRallyHits||0],
+    ["Achievements", Store.unlockedCount()+" / "+Object.keys(ACH_DEFS).length],
+  ];
+  for(const [k,v] of rows){
+    text(k, X(PW*0.12), y, L(22), "rgba(255,255,200,0.75)", "left");
+    text(String(v), X(PW*0.88), y, L(22), COL_INK, "right");
+    y += L(38);
+  }
+  y += L(14);
+  text("ACHIEVEMENTS", X(PW/2), y, L(24), COL_GREEN); y += L(38);
+  for(const key of Object.keys(ACH_DEFS)){
+    const a = ACH_DEFS[key], got = Store.isUnlocked(key);
+    ctx.globalAlpha = got ? 1 : 0.32;
+    text(a.icon, X(PW*0.12), y, L(24), COL_INK, "left");
+    text(a.name, X(PW*0.20), y, L(20), got?COL_GOLD:"#ffffc8", "left");
+    text(got ? "✓ earned" : a.desc, X(PW*0.88), y, L(15), got?COL_GREEN:"rgba(255,255,200,0.6)", "right");
+    ctx.globalAlpha = 1;
+    y += L(30);
+  }
+  menuButtons.push({...drawButton("←  BACK", X(PW/2), Y(PH)-L(60), L(280), L(64), "rgba(255,255,255,0.12)"), act:()=>{Game.state=S.MENU;}});
+}
+function drawTowerIntro(){
+  drawField(); drawPaddle(Game.top); drawPaddle(Game.bottom); drawHUD();
+  overlay(0.5);
+  text("FLOOR " + Game.floor, X(PW/2), Y(PH/2)-L(20), L(90), COL_GOLD);
+  const diff = Math.round(Game._floorDiff(Game.floor)*100);
+  text("difficulty " + diff + "%", X(PW/2), Y(PH/2)+L(50), L(22), "rgba(255,255,200,0.6)");
+  text("tap to begin", X(PW/2), Y(PH/2)+L(90), L(18), "rgba(255,255,200,0.4)");
+  drawPopups();
+}
+function drawServe(){
+  drawField(); drawPaddle(Game.top); drawPaddle(Game.bottom); drawBall(Game.ball); drawHUD();
+  const secs = Math.ceil(Game.ball.serveDelay);
+  text(String(secs), X(PW/2), Y(PH/2)-L(80), L(70), "rgba(255,255,200,0.5)");
+  text("tap to serve now", X(PW/2), Y(PH/2)+L(60), L(18), "rgba(255,255,200,0.35)");
+  drawPopups();
+}
+function drawPlaying(){
+  drawField(); drawPaddle(Game.top); drawPaddle(Game.bottom); drawBall(Game.ball); drawHUD();
+  drawPopups();
+}
+function drawWin(){
+  drawField(); drawPaddle(Game.top); drawPaddle(Game.bottom); drawHUD(); overlay(0.55);
+  let title;
+  if(Game.mode==="tower") title = "FLOOR " + Game.floor + " CLEARED";
+  else title = (Game.top._score>Game.bottom._score ? "PLAYER 1 WINS" : "PLAYER 2 WINS");
+  text(title, X(PW/2), Y(PH/2)-L(40), L(56), COL_GOLD);
+  text(Game.top._score + "  –  " + Game.bottom._score, X(PW/2), Y(PH/2)+L(20), L(40), COL_INK);
+  const hint = Game.mode==="tower" ? "tap for next floor" : "tap for rematch";
+  text(hint + "   ·   pause → quit", X(PW/2), Y(PH/2)+L(80), L(18), "rgba(255,255,200,0.5)");
+  drawPopups();
+}
+function drawGameOver(){
+  drawField(); drawPaddle(Game.top); drawPaddle(Game.bottom); drawHUD(); overlay(0.6);
+  text("DEFEATED", X(PW/2), Y(PH/2)-L(50), L(60), COL_BOTTOM);
+  text("You reached floor " + Game.floor, X(PW/2), Y(PH/2)+L(10), L(26), COL_INK);
+  text("tap to restart the tower  ·  pause → quit", X(PW/2), Y(PH/2)+L(60), L(18), "rgba(255,255,200,0.5)");
+  drawPopups();
+}
+function drawPaused(){
+  drawPlaying(); overlay(0.6);
+  menuButtons = [];
+  text("PAUSED", X(PW/2), Y(PH*0.4), L(56), COL_INK);
+  menuButtons.push({...drawButton("RESUME", X(PW/2), Y(PH*0.55), L(320), L(72), "rgba(0,200,255,0.16)"), act:()=>Game.togglePause()});
+  menuButtons.push({...drawButton("QUIT TO MENU", X(PW/2), Y(PH*0.55)+L(92), L(320), L(72), "rgba(255,80,80,0.16)"), act:()=>{Game.state=S.CONFIRM;}});
+}
+function drawConfirm(){
+  drawPlaying(); overlay(0.7);
+  menuButtons = [];
+  text("Quit to menu?", X(PW/2), Y(PH*0.42), L(40), COL_INK);
+  menuButtons.push({...drawButton("YES", X(PW/2)-L(110), Y(PH*0.56), L(180), L(72), "rgba(255,80,80,0.18)"), act:()=>Game.quitToMenu()});
+  menuButtons.push({...drawButton("NO", X(PW/2)+L(110), Y(PH*0.56), L(180), L(72), "rgba(0,200,255,0.16)"), act:()=>{Game.state=S.PAUSED;}});
+}
+
+function render(){
+  switch(Game.state){
+    case S.MENU: drawMenu(); break;
+    case S.STATS: drawStats(); break;
+    case S.TOWER_INTRO: drawTowerIntro(); break;
+    case S.SERVE: drawServe(); break;
+    case S.PLAYING: drawPlaying(); break;
+    case S.WIN: drawWin(); break;
+    case S.GAME_OVER: drawGameOver(); break;
+    case S.PAUSED: drawPaused(); break;
+    case S.CONFIRM: drawConfirm(); break;
+  }
+}
+
+// ===========================================================================
+// Input — touch (multi), mouse, keyboard fallback
+// ===========================================================================
+function hitButtons(sx, sy){
+  for(const b of menuButtons){
+    if(sx>=b.x && sx<=b.x+b.w && sy>=b.y && sy<=b.y+b.h){ b.act(); return true; }
+  }
+  return false;
+}
+function hitPause(sx, sy){
+  const dx=sx-pauseBtn.x, dy=sy-pauseBtn.y;
+  return (dx*dx+dy*dy) <= pauseBtn.r*pauseBtn.r;
+}
+
+const activeTouch = {};   // identifier -> "top"|"bottom"
+function zoneForY(logicalY){ return logicalY < PH/2 ? "top" : "bottom"; }
+
+function onDown(sx, sy){
+  Audio2.init(); Audio2.resume();
+  if(Game.state===S.MENU || Game.state===S.STATS || Game.state===S.PAUSED || Game.state===S.CONFIRM){
+    hitButtons(sx, sy); return;
+  }
+  if((Game.state===S.PLAYING||Game.state===S.SERVE||Game.state===S.TOWER_INTRO) && hitPause(sx,sy)){
+    Game.togglePause(); return;
+  }
+  if(Game.state===S.TOWER_INTRO || Game.state===S.SERVE || Game.state===S.WIN || Game.state===S.GAME_OVER){
+    Game.tap();
+  }
+}
+function steer(id, sx, sy){
+  const lx = toLogicalX(sx), ly = toLogicalY(sy);
+  let zone = activeTouch[id];
+  if(!zone){ zone = zoneForY(ly); activeTouch[id] = zone; }
+  const clampX = Math.max(PADDLE_W/2, Math.min(PW-PADDLE_W/2, lx));
+  if(Game.mode==="tower"){
+    if(zone==="bottom") Game.bottom.targetX = clampX;     // only bottom zone active
+  } else if(Game.mode==="multiplayer"){
+    if(zone==="top") Game.top.targetX = clampX;
+    else Game.bottom.targetX = clampX;
+  }
+}
+
+canvas.addEventListener("touchstart", (e)=>{
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    onDown(t.clientX, t.clientY);
+    if(Game.state===S.PLAYING || Game.state===S.SERVE) steer(t.identifier, t.clientX, t.clientY);
+  }
+}, {passive:false});
+canvas.addEventListener("touchmove", (e)=>{
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    if(Game.state===S.PLAYING || Game.state===S.SERVE) steer(t.identifier, t.clientX, t.clientY);
+  }
+}, {passive:false});
+function endTouch(e){
+  e.preventDefault();
+  for(const t of e.changedTouches) delete activeTouch[t.identifier];
+}
+canvas.addEventListener("touchend", endTouch, {passive:false});
+canvas.addEventListener("touchcancel", endTouch, {passive:false});
+
+let mouseDown = false;
+canvas.addEventListener("mousedown", (e)=>{ mouseDown=true; onDown(e.clientX, e.clientY); if(Game.state===S.PLAYING||Game.state===S.SERVE) steer("mouse", e.clientX, e.clientY); });
+canvas.addEventListener("mousemove", (e)=>{ if(mouseDown && (Game.state===S.PLAYING||Game.state===S.SERVE)) steer("mouse", e.clientX, e.clientY); });
+window.addEventListener("mouseup", ()=>{ mouseDown=false; delete activeTouch["mouse"]; });
+
+const keys = {};
+window.addEventListener("keydown", (e)=>{
+  keys[e.key.toLowerCase()] = true;
+  if(e.key===" "){ e.preventDefault();
+    if(Game.state===S.SERVE||Game.state===S.TOWER_INTRO||Game.state===S.WIN||Game.state===S.GAME_OVER) Game.tap();
+    else Game.togglePause();
+  }
+  if(e.key==="Enter" && (Game.state===S.WIN||Game.state===S.GAME_OVER||Game.state===S.TOWER_INTRO||Game.state===S.SERVE)) Game.tap();
+  if(e.key==="Escape"){ if(Game.state===S.WIN||Game.state===S.GAME_OVER) Game.quitToMenu(); else if(Game.state===S.PLAYING||Game.state===S.PAUSED) Game.state=S.CONFIRM; }
+});
+window.addEventListener("keyup", (e)=>{ keys[e.key.toLowerCase()] = false; });
+function keyboardSteer(dt){
+  const step = PADDLE_SPEED*dt*3;
+  const b = Game.bottom, tp = Game.top;
+  if(keys["arrowleft"]||keys["a"]) b.targetX = Math.max(PADDLE_W/2, b.cx - step);
+  if(keys["arrowright"]||keys["d"]) b.targetX = Math.min(PW-PADDLE_W/2, b.cx + step);
+  if(Game.mode==="multiplayer"){
+    if(keys["f"]) tp.targetX = Math.max(PADDLE_W/2, tp.cx - step);
+    if(keys["h"]) tp.targetX = Math.min(PW-PADDLE_W/2, tp.cx + step);
+  }
+}
+
+// ===========================================================================
+// Main loop
+// ===========================================================================
+let last = performance.now();
+function frame(now){
+  let dt = (now - last)/1000;
+  last = now;
+  if(dt > DT_CLAMP) dt = DT_CLAMP;   // guard tab-switch / GC hiccup
+  if(dt < 0) dt = 0;
+  if(Game.state===S.PLAYING || Game.state===S.SERVE) keyboardSteer(dt);
+  Game.update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+
+resize();
+requestAnimationFrame(frame);
+</script>
 </body>
 </html>
