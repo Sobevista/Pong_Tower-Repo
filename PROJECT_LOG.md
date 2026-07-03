@@ -1,7 +1,7 @@
 # Project Log: Pong Tower
 
 **Root Directory:** C:\Users\dansl\PONG_GAME\
-**Last Session Date:** 2026-07-01
+**Last Session Date:** 2026-07-03
 **Tech Stack:** Python 3.11 + Pygame 2.6.1 (Hermes venv)
 
 ---
@@ -23,7 +23,18 @@ Phase 2 — Structure          ▼ DONE
   ├─ Tower mode: floor intro, advance on win
   └─ Pause -> confirm quit -> menu flow
 
-Phase 3 — Stacking           ← NEXT
+Phase 2.5 — Hardening        ▼ DONE (2026-07-03)
+  ├─ Adversarial review (independent subagent): 3 blockers, 8 reals
+  ├─ CPU edge-hit blindness fixed; input cascade fixed; ESC-on-win fixed
+  ├─ Comeback/1st-blood/tower milestones/popups fixed; audio crash guard
+  ├─ Horizontal center line; paddles re-center per serve (playtest)
+  └─ Test suite 12 → 20, all proven to fail against pre-fix code
+
+Phase M — Mobile Port        ← NEXT (recorded session; PORT_SPEC.md rev 2)
+  ├─ HTML5/JS canvas, portrait 700×1000, GitHub Pages link first
+  └─ Milestones M1–M6 in PORT_SPEC §10
+
+Phase 3 — Stacking           (after mobile port)
   ├─ Multiplayer 4-player input (IJKL + Numpad)
   ├─ Paddle upgrade system (speed, wide, shield)
   └─ Power-up spawning system
