@@ -98,7 +98,7 @@ class Ball:
         if paddle.side == "top":  # P1 hit -> ball should go DOWN
             self.angle = math.pi / 2 - deflect  # right-side hit -> deflects right
         else:  # P2 hit -> ball should go UP
-            self.angle = -math.pi / 2 + deflect  # right-side hit -> deflects right (mirrors top)
+            self.angle = -math.pi / 2 - deflect  # right-side hit -> deflects right (mirrors top)
 
         # Spin effect from boost timers
         if paddle.boost_timer > 0:
