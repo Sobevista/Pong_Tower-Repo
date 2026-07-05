@@ -17,19 +17,51 @@ prose back and forth:
 
 ## The loop
 
-1. Claude pulls, reviews/fixes/builds, commits, pushes, updates
-   `HANDOFF_TO_HERMES.md` as the final commit of the session.
-2. Daniel tells Hermes to pull and read `HANDOFF_TO_HERMES.md`.
+1. Claude pulls latest master, reviews/fixes/builds on a branch, commits,
+   pushes the branch, opens a PR (`gh pr create --base master`), and
+   updates `HANDOFF_TO_HERMES.md` (on that same branch/PR) as the final
+   commit of the session. See "Workflow: branch → PR → CI → human merge"
+   above — Claude does not push to master directly.
+2. Daniel merges the PR once the `test` check is green, then tells Hermes
+   to pull master and read `HANDOFF_TO_HERMES.md`.
 3. Hermes does whatever that file asks — usually: run the real thing with
    real I/O, since that's the one capability Claude's sandbox doesn't have.
-4. Hermes commits + pushes + updates `HANDOFF_TO_CLAUDE.md` as its final
-   commit.
-5. Daniel tells Claude to pull and read `HANDOFF_TO_CLAUDE.md`. Repeat.
+4. Hermes works on its own branch, commits, pushes the branch, opens a PR,
+   and updates `HANDOFF_TO_CLAUDE.md` as its final commit — same rule,
+   no direct push to master.
+5. Daniel merges Hermes's PR once green, then tells Claude to pull master
+   and read `HANDOFF_TO_CLAUDE.md`. Repeat.
 
 Daniel's role in each direction is just "go tell the other one to pull" —
 not retyping content. If a handoff file is asking him to relay a decision
 or a preference only he can make, that's fine and expected; what shouldn't
 happen is him manually copying technical findings between the two.
+
+## Workflow: branch → PR → CI → human merge
+
+`master` is protected (`enforce_admins` on) — **direct pushes to master are
+physically blocked**, for both agents and Daniel. There is no "just push it"
+path anymore. Every change, from either agent, follows this shape:
+
+1. Branch off up-to-date `master` (`git checkout -b <name>`).
+2. Commit, push the branch (`git push -u origin <name>`).
+3. Open a PR into master: `gh pr create --base master`.
+4. Wait for the `test` status check (the `chassis/phase0` CI: runs
+   `tests/invariants/` then `test_pong.py`, headless, on every push to a
+   non-master branch and every PR into master) to go green.
+5. A human (Daniel) merges the PR. Neither agent merges its own PR.
+
+Two things that ride along with this:
+
+- **`tests/invariants/` is human-owned.** Agents may run these tests, never
+  modify them. If a change makes an invariant go red, the change is wrong,
+  not the test — fix the change, don't touch the test. See
+  `tests/invariants/README.md`.
+- **The mount-safety pre-commit hook is wired in** (`core.hooksPath` is set
+  to `.githooks`). It blocks any commit that deletes one of the 8 core
+  source files, or removes 5+ tracked files at once — the corrupted
+  mounted-folder-index failure mode. Bypass with `git commit --no-verify`
+  only when the deletion is genuinely intentional.
 
 ## Format: HANDOFF_TO_HERMES.md (Claude → Hermes)
 
