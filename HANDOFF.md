@@ -21,7 +21,7 @@ prose back and forth:
    pushes the branch, opens a PR (`gh pr create --base master`), and
    updates `HANDOFF_TO_HERMES.md` (on that same branch/PR) as the final
    commit of the session. See "Workflow: branch → PR → CI → human merge"
-   above — Claude does not push to master directly.
+   below — Claude does not push to master directly.
 2. Daniel merges the PR once the `test` check is green, then tells Hermes
    to pull master and read `HANDOFF_TO_HERMES.md`.
 3. Hermes does whatever that file asks — usually: run the real thing with
